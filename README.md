@@ -64,5 +64,31 @@ Token stateless firmado con HMAC-SHA256 (expira en 8 h), sin revocación server-
 
 ## Verificación
 
-- `npm run build` → build de producción sin errores.
+- `npm run build` → build de producción sin errores (salida estática en `dist/PMV/browser`).
 - `npm start` → `http://localhost:4200` (el backend debe estar arriba para ver datos).
+
+## Despliegue en Vercel (frontend estático)
+
+La app compila a estático (CSR): `npm run build` genera `dist/PMV/browser/index.html`.
+
+En Vercel → **New Project** importando el repo del frontend:
+
+| Campo | Valor |
+| --- | --- |
+| Root Directory | `./` (raíz del repo; **no** `src`) |
+| Application Preset | Angular (se detecta solo) |
+| Build Command | dejar `npm run build` |
+| Output Directory | `dist/PMV/browser` |
+| Install Command | dejar por defecto |
+
+- `vercel.json` incluye el rewrite SPA (`/(.*)` → `/index.html`) para que `/seguimiento/:token` funcione.
+- **URL del backend en producción:** edita `src/environments/environment.prod.ts` (se usa vía `fileReplacements` en el build de producción) con la URL pública del backend y haz commit + push. Nunca pongas credenciales ahí.
+- No definas secretos en "Environment Variables" de Vercel para este frontend; la API del backend es pública por diseño (rutas públicas + sesión demo firmada).
+
+## Despliegue del backend (pendiente de publicación)
+
+`server.js` usa `app.listen()` (servidor persistente), así que **Vercel no es el destino ideal**: publícalo en Render/Railway con las variables `MONGO_URI`, `MONGODB_DB_NAME`, `PORT`, `ALLOWED_ORIGINS=https://<tu-app>.vercel.app` y `PMV_SESSION_SECRET=<aleatorio>`. En Vercel para el backend haría falta envolver Express en un handler `api/` (pendiente).
+
+## Publicación en GitHub
+
+Repos separados (ej. `PMVFrontend`, `PMVBackend`): `git init` en cada carpeta, `git add -A`, verifica que `.env` no aparezca (`git status --short | grep -i .env` → vacío), `git commit`, `git remote add origin <url>`, `git push -u origin main`.
