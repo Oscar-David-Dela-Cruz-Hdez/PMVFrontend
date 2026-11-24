@@ -3,5 +3,5 @@
 // NUNCA pongas credenciales aquí: solo la URL pública de la API.
 export const environment = {
   production: true,
-  apiUrl: 'https://pmv-backend.example.com/api',
+  apiUrl: 'https://pmvbackend.onrender.com',
 };
