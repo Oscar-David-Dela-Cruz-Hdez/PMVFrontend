@@ -1,0 +1,279 @@
+<main>
+  <header class="topbar">
+    <a class="brand" href="#inicio" aria-label="ReparaYa inicio"><span class="brand-mark">R</span><span>Repara<span>Ya</span></span></a>
+    <div class="workshop"><span class="workshop-label">{{ auth.user()?.role === 'admin' ? 'Equipo investigador' : 'Taller autenticado' }}</span><strong>{{ auth.user()?.workshopCode || auth.user()?.displayName || '—' }}</strong></div>
+    <nav class="topnav" aria-label="Secciones del PMV">
+      <a routerLink="/incidencias" routerLinkActive="active">Incidencias</a>
+      @if (auth.isAdmin()) { <a routerLink="/resumen-e1" routerLinkActive="active">Resumen E1</a> }
+    </nav>
+    <div class="session">
+      <span class="session-name">{{ auth.user()?.displayName || 'Cuenta de demostración' }}</span>
+      <button class="secondary-button session-out" type="button" (click)="auth.logout()">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <section class="hero" id="inicio">
+    <div><p class="eyebrow">Panel del reparador</p><h1>Organiza cada reparación<br>con claridad.</h1><p class="hero-copy">Registra el diagnóstico, actualiza el avance y conserva el historial del servicio en un solo lugar.</p></div>
+    <button class="primary-button" type="button" (click)="openForm()">+ Nueva reparación</button>
+  </section>
+
+  <!-- Modal: nueva reparación -->
+  @if (showForm()) {
+    <div class="modal-backdrop" (click)="closeForm()">
+      <section class="modal-card form-modal" role="dialog" aria-modal="true" aria-label="Nueva reparación" (click)="$event.stopPropagation()">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Nueva reparación</p>
+            <h2>Registrar reparación</h2>
+            <p class="modal-sub">Completa los datos del equipo y la falla reportada. Los campos con <span class="req">*</span> son obligatorios.</p>
+          </div>
+          <button class="icon-button" type="button" (click)="closeForm()" aria-label="Cerrar formulario">✕</button>
+        </header>
+        <form class="modal-form" (ngSubmit)="saveRepair()">
+          <div class="modal-body">
+            @if (formError()) { <p class="banner error" role="alert">{{ formError() }}</p> }
+            @if (formSuccess()) { <p class="banner success" role="status">{{ formSuccess() }}</p> }
+            <div class="form-section">
+              <h3>Datos del equipo</h3>
+              <div class="form-grid">
+                <label>Folio <span class="req">*</span><input type="text" name="folio" [(ngModel)]="form.folio" placeholder="Ej. RY-1001" required></label>
+                <label>Alias del cliente<input type="text" name="clientAlias" [(ngModel)]="form.clientAlias" placeholder="Ej. Cliente A."></label>
+                <label>Equipo <span class="req">*</span><input type="text" name="deviceType" [(ngModel)]="form.deviceType" placeholder="Ej. Samsung Galaxy A54" required></label>
+                <label>Estado inicial <span class="req">*</span>
+                  <select name="status" [(ngModel)]="form.status" required>
+                    @for (s of repairStatuses; track s) { <option [value]="s">{{ statusLabel(s) }}</option> }
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="form-section">
+              <h3>Falla y diagnóstico</h3>
+              <div class="form-grid">
+                <label class="span-2">Falla reportada <span class="req">*</span><textarea name="reportedIssue" rows="2" [(ngModel)]="form.reportedIssue" placeholder="Ej. No carga el dispositivo" required></textarea></label>
+                <label class="span-2">Diagnóstico inicial<textarea name="diagnosis" rows="2" [(ngModel)]="form.diagnosis" placeholder="Opcional"></textarea></label>
+              </div>
+            </div>
+            <div class="form-section">
+              <h3>Presupuesto y fecha</h3>
+              <div class="form-grid">
+                <label>Presupuesto inicial<input type="number" name="initialBudget" min="0" step="0.01" [(ngModel)]="form.initialBudget" placeholder="Opcional"></label>
+                <label>Fecha estimada<input type="date" name="estimatedDate" [(ngModel)]="form.estimatedDate"></label>
+              </div>
+            </div>
+          </div>
+          <footer class="modal-actions">
+            <button class="secondary-button" type="button" (click)="closeForm()">Cancelar</button>
+            <button class="primary-button" type="submit" [disabled]="formSaving()">{{ formSaving() ? 'Guardando…' : 'Guardar reparación' }}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  }
+
+  <section class="summary" aria-label="Resumen de reparaciones">
+    <article><span>Reparaciones activas</span><strong>{{ activeCount() }}</strong><small>Excluye entregadas y canceladas</small></article>
+    <article><span>Esperando autorización</span><strong>{{ waitingAuthCount() }}</strong><small>Revisar cambio de presupuesto</small></article>
+    <article><span>Listas para entregar</span><strong>{{ readyCount() }}</strong><small>Actualizar al cliente por el canal acordado</small></article>
+  </section>
+
+  <section class="repairs-section">
+    <div class="section-heading"><div><p class="eyebrow">Seguimiento</p><h2>Reparaciones recientes</h2></div><label class="search-box"><span>⌕</span><input type="search" [ngModel]="search()" (ngModelChange)="onSearch($event)" placeholder="Buscar folio, equipo o falla"></label></div>
+    <div class="filters" aria-label="Filtrar por estado">
+      @for (opt of statusOptions; track opt.value) {
+        <button type="button" [class.active]="selectedStatus() === opt.value" (click)="setStatus(opt.value)">{{ opt.label }}</button>
+      }
+    </div>
+
+    @if (loadError()) {
+      <div class="banner error" role="alert">
+        <span>{{ loadError() }}</span>
+        <button class="secondary-button" type="button" (click)="loadRepairs()">Reintentar</button>
+      </div>
+    }
+
+    <div class="table-wrap"><table><thead><tr><th>Folio</th><th>Equipo y falla</th><th>Estado</th><th>Presupuesto</th><th>Última actualización</th><th></th></tr></thead><tbody>
+      @for (repair of repairs(); track repair.folio) {
+        <tr>
+          <td><strong>{{ repair.folio }}</strong>@if (repair.isDemo) { <span class="demo-badge">dato ficticio</span> }<span>{{ repair.clientAlias || 'Sin alias' }}</span></td>
+          <td><strong>{{ repair.deviceType }}</strong><span>{{ repair.reportedIssue }}</span></td>
+          <td><span [class]="statusClass(repair.status)">{{ statusLabel(repair.status) }}</span></td>
+          <td>{{ budgetLabel(repair) }}@if (pendingExtra(repair) > 0) { <span class="pending-extra">+{{ formatMoney(pendingExtra(repair)) }} pendiente</span> }</td>
+          <td>{{ repair.updatedAt | date:'dd/MM/yyyy HH:mm' }}</td>
+          <td><button class="detail-button" type="button" (click)="openDetail(repair.folio)">Ver detalle</button></td>
+        </tr>
+      }
+      @empty { @if (!loading() && !loadError()) { <tr><td colspan="6" class="empty">No hay reparaciones con ese criterio.</td></tr> } }
+      @if (loading()) { <tr><td colspan="6" class="empty">Cargando reparaciones…</td></tr> }
+    </tbody></table></div>
+  </section>
+
+  <!-- Modal: detalle de la reparación (con pestañas) -->
+  @if (detailFolio(); as folio) {
+    <div class="modal-backdrop" (click)="closeDetail()">
+      <section class="modal-card detail-modal" role="dialog" aria-modal="true" aria-label="Detalle de la reparación" (click)="$event.stopPropagation()">
+        @if (detailLoading()) { <p class="empty modal-loading">Cargando detalle de {{ folio }}…</p> }
+        @if (detailError()) {
+          <div class="modal-body">
+            <div class="banner error" role="alert">
+              <span>{{ detailError() }}</span>
+              <button class="secondary-button" type="button" (click)="openDetail(folio)">Reintentar</button>
+            </div>
+          </div>
+        }
+        @if (detail(); as r) {
+          <header class="modal-head">
+            <div class="detail-title">
+              <p class="eyebrow">Detalle de la reparación</p>
+              <h2>{{ r.folio }} @if (r.isDemo) { <span class="demo-badge">dato ficticio</span> }</h2>
+              <div class="detail-meta">
+                <span class="meta-chip">{{ r.deviceType }}</span>
+                <span class="meta-chip">Cliente: {{ r.clientAlias || 'Sin alias' }}</span>
+                <span [class]="statusClass(r.status)">{{ statusLabel(r.status) }}</span>
+              </div>
+              <p class="detail-issue">“{{ r.reportedIssue }}”</p>
+              <p class="detail-sub">Enlace público (solo lectura): <code>{{ publicUrl(r) }}</code></p>
+            </div>
+            <button class="icon-button" type="button" (click)="closeDetail()" aria-label="Cerrar detalle">✕</button>
+          </header>
+
+          <nav class="modal-tabs" aria-label="Secciones del detalle">
+            <button type="button" [class.active]="detailTab() === 'history'" (click)="setDetailTab('history')">Historial</button>
+            <button type="button" [class.active]="detailTab() === 'edit'" (click)="setDetailTab('edit')">Actualizar</button>
+            <button type="button" [class.active]="detailTab() === 'add'" (click)="setDetailTab('add')">Falla adicional</button>
+            <button type="button" [class.active]="detailTab() === 'e1'" (click)="setDetailTab('e1')">Registro E1</button>
+          </nav>
+
+          <div class="modal-body">
+            @if (detailTab() === 'history') {
+              <div class="history-grid">
+                <div class="card">
+                  <h3>Historial de estados</h3>
+                  @if (r.timeline.length) {
+                    <ol class="timeline-v2">
+                      @for (entry of r.timeline; track $index) {
+                        <li>
+                          <span [class]="statusClass(entry.status)">{{ statusLabel(entry.status) }}</span>
+                          <small class="t-date">{{ entry.createdAt | date:'dd/MM/yyyy HH:mm' }}</small>
+                          @if (entry.note) { <p class="t-note">{{ entry.note }}</p> }
+                        </li>
+                      }
+                    </ol>
+                  } @else { <p class="empty">Sin historial todavía.</p> }
+                </div>
+                <div class="card">
+                  <h3>Cambios de presupuesto</h3>
+                  @if (r.budgetChanges.length) {
+                    <ul class="budget-list">
+                      @for (bc of r.budgetChanges; track $index) {
+                        <li>
+                          <strong class="amount">{{ formatMoney(bc.amount) }}</strong>
+                          <span class="reason">{{ bc.reason }}<small class="t-date">{{ bc.createdAt | date:'dd/MM/yyyy HH:mm' }}</small></span>
+                          <em [class]="'auth-chip ' + bc.authorizationStatus">{{ authLabel(bc.authorizationStatus) }}</em>
+                        </li>
+                      }
+                    </ul>
+                  } @else { <p class="empty">Sin cambios de presupuesto registrados.</p> }
+                </div>
+              </div>
+            }
+
+            @if (detailTab() === 'edit') {
+              <form class="card mini-form edit-card" (ngSubmit)="saveDetail()">
+                <h3>Actualizar reparación</h3>
+                @if (editError()) { <p class="banner error" role="alert">{{ editError() }}</p> }
+                @if (editSuccess()) { <p class="banner success" role="status">{{ editSuccess() }}</p> }
+                <label>Estado
+                  <select name="editStatus" [(ngModel)]="editForm.status">
+                    @for (s of repairStatuses; track s) { <option [value]="s">{{ statusLabel(s) }}</option> }
+                  </select>
+                </label>
+                <label>Diagnóstico<textarea name="editDiagnosis" rows="4" [(ngModel)]="editForm.diagnosis" placeholder="Diagnóstico del técnico"></textarea></label>
+                <div class="form-grid">
+                  <label>Presupuesto inicial<input type="number" name="editBudget" min="0" step="0.01" [(ngModel)]="editForm.initialBudget" placeholder="Monto inicial"></label>
+                  <label>Fecha estimada<input type="date" name="editDate" [(ngModel)]="editForm.estimatedDate"></label>
+                </div>
+                <button class="primary-button" type="submit" [disabled]="editSaving()">{{ editSaving() ? 'Guardando…' : 'Guardar cambios' }}</button>
+              </form>
+            }
+
+            @if (detailTab() === 'add') {
+              <form class="card mini-form edit-card" (ngSubmit)="saveBudgetChange()">
+                <h3>Registrar falla adicional</h3>
+                @if (budgetError()) { <p class="banner error" role="alert">{{ budgetError() }}</p> }
+                @if (budgetSuccess()) { <p class="banner success" role="status">{{ budgetSuccess() }}</p> }
+                <label>Razón / falla adicional <span class="req">*</span><input type="text" name="bcReason" [(ngModel)]="budgetForm.reason" placeholder="Ej. Daño adicional en la placa"></label>
+                <div class="form-grid">
+                  <label>Monto adicional <span class="req">*</span><input type="number" name="bcAmount" min="0" step="0.01" [(ngModel)]="budgetForm.amount" placeholder="0"></label>
+                  <label>Estado de autorización <span class="req">*</span>
+                    <select name="bcAuth" [(ngModel)]="budgetForm.authorizationStatus">
+                      <option value="pending">Pendiente</option>
+                      <option value="approved">Aprobado</option>
+                      <option value="rejected">Rechazado</option>
+                      <option value="not_applicable">No aplica</option>
+                    </select>
+                  </label>
+                </div>
+                <label>Nota de autorización<textarea name="bcNote" rows="3" [(ngModel)]="budgetForm.authorizationNote" placeholder="Opcional"></textarea></label>
+                <button class="primary-button" type="submit" [disabled]="budgetSaving()">{{ budgetSaving() ? 'Registrando…' : 'Registrar cambio' }}</button>
+              </form>
+            }
+
+            @if (detailTab() === 'e1') {
+              <form class="card mini-form edit-card" (ngSubmit)="saveExperimentRecord()">
+                <h3>Registro E1</h3>
+                @if (expLoading()) { <p class="empty">Cargando registro E1…</p> }
+                @if (expError()) { <p class="banner error" role="alert">{{ expError() }}</p> }
+                @if (expSuccess()) { <p class="banner success" role="status">{{ expSuccess() }}</p> }
+                @if (expRecord()) { <p class="exp-existing">Ya existe un registro E1 para esta reparación; al guardar se actualiza (PATCH).</p> }
+                <div class="form-grid">
+                  <label>Jornada (1–7) <span class="req">*</span><input type="number" name="expJourney" min="1" max="7" [(ngModel)]="expForm.journeyNumber"></label>
+                  <label>¿Elegible? <span class="req">*</span>
+                    <select name="expEligible" [(ngModel)]="expForm.isEligible">
+                      <option [ngValue]="true">Sí</option>
+                      <option [ngValue]="false">No</option>
+                    </select>
+                  </label>
+                </div>
+                @if (!expForm.isEligible) {
+                  <label>Motivo de exclusión <span class="req">*</span><input type="text" name="expReason" [(ngModel)]="expForm.eligibilityReason" placeholder="Ej. reparación fuera del alcance del experimento"></label>
+                }
+                <div class="form-grid">
+                  <label>Eventos exigibles <span class="req">*</span><input type="number" name="expReq" min="0" [(ngModel)]="expForm.requiredEvents"></label>
+                  <label>Eventos oportunos <span class="req">*</span><input type="number" name="expTimely" min="0" [(ngModel)]="expForm.timelyEvents"></label>
+                </div>
+                <label>¿Se intentó la captura? <span class="req">*</span>
+                  <select name="expAttempt" [(ngModel)]="expForm.captureAttempted">
+                    <option [ngValue]="true">Sí</option>
+                    <option [ngValue]="false">No (registro manual de caso no capturado)</option>
+                  </select>
+                </label>
+                @if (expForm.captureAttempted) {
+                  <div class="form-grid">
+                    <label>Inicio de captura<input type="datetime-local" name="expStart" [(ngModel)]="expForm.captureStartedAt"></label>
+                    <label>Fin de captura<input type="datetime-local" name="expEnd" [(ngModel)]="expForm.captureCompletedAt"></label>
+                  </div>
+                  <label>Minutos adicionales (medidos)<input type="number" name="expMinutes" min="0" step="0.01" [(ngModel)]="expForm.additionalMinutes" placeholder="Vacío si no se midió (nunca 0)"></label>
+                }
+                <div class="form-grid">
+                  <label>Nivel de ayuda <span class="req">*</span>
+                    <select name="expAssist" [(ngModel)]="expForm.assistanceLevel">
+                      <option value="none">Sin ayuda (autónomo)</option>
+                      <option value="partial">Parcial</option>
+                      <option value="total">Total</option>
+                    </select>
+                  </label>
+                  <label>ID de incidencia (opcional)<input type="text" name="expIncident" [(ngModel)]="expForm.incidentId" placeholder="Ej. INC-001"></label>
+                </div>
+                <label>Nota de ayuda<textarea name="expAssistNote" rows="2" [(ngModel)]="expForm.assistanceNote"></textarea></label>
+                <label>Observaciones anonimizadas<textarea name="expObs" rows="3" [(ngModel)]="expForm.observations" placeholder="Sin IMEI, teléfonos, contraseñas, nombres completos ni contenido del dispositivo"></textarea></label>
+                <button class="primary-button" type="submit" [disabled]="expSaving()">{{ expSaving() ? 'Guardando…' : (expRecord() ? 'Actualizar registro E1' : 'Guardar registro E1') }}</button>
+              </form>
+            }
+          </div>
+        }
+      </section>
+    </div>
+  }
+
+  <footer>PMV académico de ReparaYa · Datos ficticios de demostración · Backend: {{ apiUrl }}</footer>
+</main>
